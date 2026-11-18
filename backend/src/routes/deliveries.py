@@ -5,6 +5,7 @@ from src.controllers.auth import current,admin
 from src.models.run import Schedule,Delivery
 from src.schemas.requests import ScheduleInput
 from src.services.delivery import add_schedule
+from src.services.release import guard_viewer_download
 from src.services.export import csv_text
 from src.utils.serialize import row
 router=APIRouter()
@@ -23,4 +24,5 @@ def deliveries(db=Depends(database),u=Depends(current)): return [row(x) for x in
 def download(id:int,db=Depends(database),u=Depends(current)):
  obj=db.get(Delivery,id)
  if not obj: raise HTTPException(404,'交付不存在')
+ if u.role=='viewer': guard_viewer_download(db,obj.payload.get('checksum',''))
  return Response(csv_text(obj.payload['result']),media_type='text/csv',headers={'Content-Disposition':f'attachment; filename="delivery-{id}.csv"'})

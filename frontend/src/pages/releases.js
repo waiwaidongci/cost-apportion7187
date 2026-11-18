@@ -1,0 +1,22 @@
+import {heading} from '../components/common/header.js';import {table} from '../components/common/table.js';import {esc,time} from '../utils/format.js';import {STATUSES} from '../constants/enums.js';import {store} from '../stores/business.js';
+const deptsOf=run=>[...new Set((run?.result?.rows||[]).map(r=>r['部门']))].sort();
+const short=s=>esc(String(s||'').slice(0,12));
+const coefText=o=>Object.entries(o||{}).map(([k,v])=>`${esc(k)} × ${esc(v)}`).join('；');
+const leaks=arr=>(arr||[]).map(l=>`<p>保密部门「${esc(l.department)}」可被唯一解出 = ${esc(l.value)} 分。推导：${l.combination.map(t=>`${esc(t.label)} × ${esc(t.coefficient)}`).join(' ＋ ')}</p>`).join('');
+const key=()=>crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2);
+export function releases(c,d){
+ const role=store.session?.role||'viewer',canEdit=['admin','analyst'].includes(role);
+ const completed=d.runs.filter(r=>r.status==='completed');
+ const profileRun=completed.find(r=>r.id===store.profileRun)||completed[0];
+ const releaseRun=completed.find(r=>r.id===store.releaseRun)||completed[0];
+ const profileOf=run=>run?d.releaseProfiles.find(p=>p.checksum===run.checksum):null;
+ const active=profileOf(profileRun),target=profileOf(releaseRun);
+ const options=run=>completed.map(r=>`<option value="${r.id}" ${r.id===run?.id?'selected':''}>${esc(r.name)}</option>`).join('');
+ const profileSection=role==='admin'?(completed.length?`<h2>保密配置</h2><form id="profile-form"><div class="inline-form" style="border:0;padding:0;margin:0"><label>已完成报告<select name="run_id" id="profile-run">${options(profileRun)}</select></label><label>配置说明<input name="note" value="${esc(active?.note||'')}"></label></div><div class="check-grid">${deptsOf(profileRun).map(x=>`<label class="check"><input type="checkbox" name="confidential" value="${esc(x)}" ${active?.confidential.includes(x)?'checked':''}> ${esc(x)}</label>`).join('')}</div><button>保存保密配置</button></form><p class="method">${active?`当前冻结版本 ${short(active.checksum)}… 保密部门：${active.confidential.map(esc).join('、')||'无'}`:'该冻结版本尚未配置保密部门，保存后开放组合发布。'}</p>`:'<p class="empty">暂无已完成报告，无法配置保密部门。</p>'):'';
+ const publishSection=canEdit?(completed.length?`<h2>新建组合发布</h2><form id="release-form"><input type="hidden" name="request_key" value="${key()}"><div class="inline-form" style="border:0;padding:0;margin:0"><label>发布名称<input name="name" value="${esc(c.title.slice(0,2))}十一月组合" minlength="2" required></label><label>已完成报告<select name="run_id" id="release-run">${options(releaseRun)}</select></label></div><div class="form-grid">${deptsOf(releaseRun).map(x=>`<label>${esc(x)} 系数<input name="coef:${esc(x)}" value="0" placeholder="有理数，如 1/2、-3、0.1"></label>`).join('')}</div><p class="method">${target?`该版本保密部门：${target.confidential.map(esc).join('、')||'无'}；联立 ${d.releases.filter(x=>x.checksum===releaseRun.checksum&&x.status!=='rejected').length} 条历史发布（含已撤回）后精确裁决。`:'该冻结版本尚未配置保密部门，请先保存保密配置。'}</p><button>裁决并登记发布</button></form>`:'<p class="empty">暂无已完成报告，无法组合发布。</p>'):'';
+ const records=table(d.releases.map(x=>({编号:x.id,名称:x.name,报告:x.run_id,冻结版本:short(x.checksum),系数:coefText(x.coefficients),'组合金额（分）':x.value,状态:STATUSES[x.status]||x.status,裁决说明:x.reason,登记人:x.created_by,时间:time(x.created)})));
+ const actions=d.releases.filter(x=>x.status==='published').map(x=>`<button class="toggle release-download" data-id="${x.id}">下载 #${x.id} ${esc(x.name)}</button>${role==='admin'?`<button class="toggle release-withdraw" data-id="${x.id}">撤回 #${x.id}</button>`:''}`).join('');
+ const rejected=d.releases.filter(x=>x.status==='rejected'&&x.derivation?.length).map(x=>`<details><summary>拒绝推导 · #${x.id} ${esc(x.name)}</summary>${leaks(x.derivation)}</details>`).join('');
+ const verify=canEdit?`<h2>独立精确消元验证</h2>${d.releaseProfiles.map(p=>{const v=store.verify[p.checksum];return `<div class="verify-row"><p>冻结版本 ${short(p.checksum)}… · 保密部门：${p.confidential.map(esc).join('、')||'无'} <button class="toggle release-verify" data-checksum="${p.checksum}">独立消元验证</button></p>${v?`<p class="${v.verdict==='safe'?'':'error'}">${v.verdict==='safe'?`未泄露：联立 ${v.equations} 条方程（秩 ${v.rank}）未唯一解出任何保密部门`:'存在跨次泄密，请立即核查！'}</p>${leaks(v.leaks)}`:''}</div>`}).join('')||'<p class="empty">尚无保密配置。</p>'}`:'';
+ return heading('SECURE RELEASE / 06','组合发布与保密联立检查','指定保密部门与有理数系数，精确计算组合金额；联立同版历史发布（含已撤回）做精确消元，能唯一解出任一保密部门即拒绝并给出推导。')+profileSection+publishSection+`<h2>发布记录</h2>${records}<div>${actions}</div>${rejected}${role==='viewer'?'<p class="method">已配置保密部门的冻结版本关闭整表下载，请下载组合发布 CSV。</p>':''}`+verify;
+}

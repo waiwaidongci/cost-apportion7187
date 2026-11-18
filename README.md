@@ -5,7 +5,7 @@
 ## 业务场景与工作流
 模拟客户：砺禾研究协作组，12位业务与分析人员。每月研究明细先从`cost-apportion-202611.csv`录入底稿，经口径冻结、Python核算、负责人复核后向业务阅读者交付站内CSV。原有流程依靠人工表格抄算，痛点为口径版本难追溯、重复计算易错、复核与交付脱节。
 
-模块：业务总览、业务底稿、新建口径版本、异步核算与复核、定时交付、站内收件箱、审计。底稿可新增/修改/删除；口径仅新增版本；报告提交时冻结来源与版本并保存SHA256。定时交付引用已复核报告快照，worker到期写入数据库，业务阅读者下载。
+模块：业务总览、业务底稿、新建口径版本、异步核算与复核、定时交付、组合发布、站内收件箱、审计。底稿可新增/修改/删除；口径仅新增版本；报告提交时冻结来源与版本并保存SHA256。定时交付引用已复核报告快照，worker到期写入数据库，业务阅读者下载。组合发布按报告冻结版本配置保密部门，以有理数系数精确计算组合金额；联立同版历史发布（含已撤回）做精确消元，能唯一解出任一保密部门即拒绝并给出推导，线性相关但不泄密的组合放行；并发发布行锁串行联合裁决，幂等键保证崩溃重试不重复，登记与可下载内容原子生效；阅读者整表下载入口在版本配置保密部门后关闭，页面可独立精确消元验证跨次泄密。
 
 ## 算法口径
 按工时权重分摊公共成本、整数分最大余数守恒与差异透视。1分三权重守恒与稳定tie；零权重拒绝；透视总数等于源数。
@@ -21,6 +21,9 @@
 6. 09:40 admin核对数值后填写至少4字复核说明。
 7. 09:45 admin建立60秒周期计划，worker到期生成站内持久化交付。
 8. 09:46 viewer在站内收件箱下载交付CSV；审计页查看操作者与时间。
+9. 09:50 admin在组合发布页为已完成报告配置保密部门（如「光学研究」）。
+10. 09:55 analyst以有理数系数发起组合发布：安全组合放行并精确计算金额；联立历史发布能解出保密部门的组合被拒绝并展示推导。
+11. 10:00 viewer在组合发布页下载已发布CSV；原整表下载入口对已配置保密部门的版本关闭；admin可撤回发布（方程仍参与检查）并运行独立消元验证。
 
 ## 快速启动
 ```sh
@@ -41,12 +44,12 @@ Python3.11/FastAPI/SQLAlchemy/Redis，PostgreSQL16；前端原生HTML/CSS/JS ES 
 
 后端开发：在backend安装requirements，设置DATABASE_URL/REDIS_URL/JWT_SECRET，`uvicorn src.main:app --reload`；前端可用Nginx或带同等代理的静态开发服务器。前后端全部业务计算在Python。
 
-环境变量：COMPOSE_PROJECT_NAME、FRONTEND_PORT、BACKEND_PORT、DB_PORT、JWT_SECRET（部署替换）、DATABASE_URL、REDIS_URL、SEED_DEMO。`.env`不入Git。数据库/Redis/共享产物为命名卷。共享角色枚举admin/analyst/viewer与状态queued/running/completed/failed分别定义于backend/src/constants/enums.py和frontend/src/constants/enums.js。两个中间件：统一可恢复校验错误、每IP每分钟360请求限流。
+环境变量：COMPOSE_PROJECT_NAME、FRONTEND_PORT、BACKEND_PORT、DB_PORT、JWT_SECRET（部署替换）、DATABASE_URL、REDIS_URL、SEED_DEMO。`.env`不入Git。数据库/Redis/共享产物为命名卷。共享角色枚举admin/analyst/viewer、状态queued/running/completed/failed与发布状态published/rejected/withdrawn分别定义于backend/src/constants/enums.py和frontend/src/constants/enums.js。两个中间件：统一可恢复校验错误、每IP每分钟360请求限流。
 
 ## 已知边界
-定时分发为站内收件箱；一名worker轮询执行，无外部邮件。调度发送已复核固定报告快照，不自动重算新数据。时间显示Asia/Shanghai。报告导出适合小型数据；底稿全量加载240行演示数据。Google Fonts不可用时回退serif。后端API以专属字段对象收发，页面通过业务输入控件编辑，不要求用户写JSON。新增来源期间自动可选；专属字段和算法严格校验。JWT演示有效期2小时。
+定时分发为站内收件箱；一名worker轮询执行，无外部邮件。调度发送已复核固定报告快照，不自动重算新数据。时间显示Asia/Shanghai。报告导出适合小型数据；底稿全量加载240行演示数据。Google Fonts不可用时回退serif。后端API以专属字段对象收发，页面通过业务输入控件编辑，不要求用户写JSON。新增来源期间自动可选；专属字段和算法严格校验。JWT演示有效期2小时。组合发布为同步裁决：按冻结版本行锁串行，幂等键去重；泄密判定为「唯一解出」精确语义，不评估区间级部分泄露；保密配置变更只影响后续裁决，已发布方程不回收。
 
 MIT License。
 
 ## 实际实体映射
-来源记录（Source，专属业务字段校验）、口径版本（Policy）、核算报告（Run）、交付计划（Schedule）、交付（Delivery）均经数据库→模型→请求schema→service→route/controller→frontend API→store→page。Period为已有来源期间字典，在任务期间选择器使用；不单独作为复杂度计数。底稿JSON为小型多字段单记录存储，不虚构未落库的子实体。
+来源记录（Source，专属业务字段校验）、口径版本（Policy）、核算报告（Run）、交付计划（Schedule）、交付（Delivery）、保密配置（ReleaseProfile）、组合发布（Release）均经数据库→模型→请求schema→service→route/controller→frontend API→store→page。Period为已有来源期间字典，在任务期间选择器使用；不单独作为复杂度计数。底稿JSON为小型多字段单记录存储，不虚构未落库的子实体。

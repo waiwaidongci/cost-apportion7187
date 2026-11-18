@@ -4,3 +4,5 @@ class DataInput(BaseModel): data:dict
 class RunInput(BaseModel): name:str=Field(min_length=2,max_length=120); policy_id:int; period:str='全部'
 class ReviewInput(BaseModel): note:str=Field(min_length=4,max_length=2000)
 class ScheduleInput(BaseModel): name:str=Field(min_length=2,max_length=120); run_id:int; interval_seconds:int=Field(ge=5,le=86400)
+class ProfileInput(BaseModel): run_id:int; confidential:list[str]=Field(default_factory=list,max_length=50); note:str=Field(default='',max_length=2000)
+class ReleaseInput(BaseModel): request_key:str=Field(min_length=8,max_length=80); run_id:int; name:str=Field(min_length=2,max_length=120); coefficients:dict[str,str]=Field(max_length=50)
